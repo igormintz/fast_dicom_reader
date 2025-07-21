@@ -70,13 +70,13 @@ pub fn read_dicom_file(
 /// 
 /// This struct contains all the relevant information from a DICOM file,
 /// including the file path, extracted tag values, and pixel data if available.
-/// The pixel data is stored as a multi-dimensional array of 16-bit unsigned integers,
-/// which is the typical format for medical imaging data.
+/// The pixel data is stored as a multi-dimensional array of 32-bit signed integers,
+/// which preserves the original values including negative numbers for CT scans.
 #[allow(dead_code)]
 pub struct DicomData {
     pub path: PathBuf,
     pub tags: HashMap<String, Value>,
-    pub pixel_data: Option<ndarray::Array<u16, ndarray::IxDyn>>,
+    pub pixel_data: Option<ndarray::Array<i32, ndarray::IxDyn>>,
 }
     
 
@@ -221,35 +221,90 @@ fn extract_dicom_tags(dicom: &FileDicomObject<InMemDicomObject>, tags: &[Tag]) -
 /// 
 /// This function attempts to extract the pixel data from a DICOM file and convert it
 /// to a multi-dimensional array format suitable for image processing and analysis.
-/// The pixel data is typically stored as 16-bit unsigned integers (u16) which is
-/// the standard format for medical imaging data like CT scans and X-rays.
+/// The pixel data is preserved in its original format without any value mapping.
 /// 
 /// The function performs the following steps:
 /// 1. Decodes the raw pixel data from the DICOM object
 /// 2. Converts the decoded data to a multi-dimensional array
 /// 3. Transforms the data into the ndarray crate format for easier manipulation
 /// 4. Provides detailed logging about the array shape and dimensions
-fn extract_dicom_pixel_data(dicom: &FileDicomObject<InMemDicomObject>) -> Option<ndarray::Array<u16, ndarray::IxDyn>> {
-    if let Ok(pixel_data) = dicom.decode_pixel_data() {
-        // Convert to an n-dimensional array of u16 (typical for CT pixel values)
-        match pixel_data.to_ndarray::<u16>() {
-            Ok(array) => {
-                println!("Pixel array shape: {:?}", array.shape());
-                let ndim = array.ndim();
-                println!("Array has {} dimensions with shape {:?}", ndim, array.shape());
-                // Convert dicom's ndarray to main ndarray crate
-                let vec_data: Vec<u16> = array.iter().cloned().collect();
-                let shape = array.shape().to_vec();
-                Some(ndarray::Array::from_vec(vec_data).into_shape_with_order(shape).unwrap().into_dyn())
-            },
-            Err(_) => {
-                println!("Failed to convert pixel data to ndarray");
-                None
-            }
+fn extract_dicom_pixel_data(dicom: &FileDicomObject<InMemDicomObject>) -> Option<ndarray::Array<i32, ndarray::IxDyn>> {
+    // First, let's check if pixel data exists
+    match dicom.element(dicom::dictionary_std::tags::PIXEL_DATA) {
+        Ok(_) => (), // Pixel data element found
+        Err(_) => {
+            println!("No pixel data element found in DICOM");
+            return None;
         }
-    } else {
-        println!("Failed to decode pixel data");
-        None
+    }
+
+    // Try to decode pixel data
+    match dicom.decode_pixel_data() {
+        Ok(pixel_data) => {
+            // Try different data types for the pixel data
+            // Start with u16 (most common for medical imaging)
+            if let Ok(array) = pixel_data.to_ndarray::<u16>() {
+                println!("Pixel data shape: {:?}", array.shape());
+                
+                // Convert dicom's ndarray to main ndarray crate
+                let vec_data: Vec<i32> = array.iter().map(|&x| x as i32).collect();
+                let shape = array.shape().to_vec();
+                match ndarray::Array::from_vec(vec_data).into_shape_with_order(shape) {
+                    Ok(arr) => Some(arr.into_dyn()),
+                    Err(_) => None
+                }
+            } else {
+                // Try u8 (8-bit pixel data)
+                if let Ok(array) = pixel_data.to_ndarray::<u8>() {
+                    println!("Pixel data shape: {:?} (converted from u8)", array.shape());
+                    
+                    // Convert u8 to i32 (simple cast)
+                    let vec_data: Vec<i32> = array.iter().map(|&x| x as i32).collect();
+                    let shape = array.shape().to_vec();
+                    match ndarray::Array::from_vec(vec_data).into_shape_with_order(shape) {
+                        Ok(arr) => Some(arr.into_dyn()),
+                        Err(_) => None
+                    }
+                } else {
+                    // Try i16 (signed 16-bit) - preserve original values
+                    if let Ok(array) = pixel_data.to_ndarray::<i16>() {
+                        println!("Pixel data shape: {:?} (converted from i16)", array.shape());
+                        
+                        // Convert i16 to i32 (simple cast)
+                        let vec_data: Vec<i32> = array.iter()
+                            .map(|&x| x as i32)
+                            .collect();
+                        let shape = array.shape().to_vec();
+                        match ndarray::Array::from_vec(vec_data).into_shape_with_order(shape) {
+                            Ok(arr) => Some(arr.into_dyn()),
+                            Err(_) => None
+                        }
+                    } else {
+                        // Try f32 (floating point) - preserve original values
+                        if let Ok(array) = pixel_data.to_ndarray::<f32>() {
+                            println!("Pixel data shape: {:?} (converted from f32)", array.shape());
+                            
+                            // Convert f32 to i32 (truncate to integer)
+                            let vec_data: Vec<i32> = array.iter()
+                                .map(|&x| x as i32)
+                                .collect();
+                            let shape = array.shape().to_vec();
+                            match ndarray::Array::from_vec(vec_data).into_shape_with_order(shape) {
+                                Ok(arr) => Some(arr.into_dyn()),
+                                Err(_) => None
+                            }
+                        } else {
+                            println!("Failed to convert pixel data to any supported format");
+                            None
+                        }
+                    }
+                }
+            }
+        },
+        Err(_) => {
+            println!("Failed to decode pixel data");
+            None
+        }
     }
 }
 

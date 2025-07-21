@@ -8,3 +8,6 @@ dicom = { version = "0.8", features = ["ndarray"] }
 clap = { version = "4.0", features = ["derive"] }
 walkdir = "2.5.0"
 ndarray = "0.16.1"
+chrono = { version = "0.4", features = ["serde"] }
+rayon = "1.8"
+num_cpus = "1.16"
