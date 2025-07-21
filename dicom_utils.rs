@@ -10,16 +10,31 @@ use dicom::object::StandardDataDictionary;
 use dicom::core::dictionary::{DataDictionary, DataDictionaryEntry};
 use chrono::NaiveDateTime;
 
+/// Represents the various data types that can be extracted from DICOM tags.
+/// 
+/// This enum provides a unified way to handle different DICOM value representations,
+/// including strings, numeric types, dates, and times. Each variant corresponds
+/// to a specific DICOM Value Representation (VR) type.
 #[derive(Debug, Clone)]
 pub enum Value {
+    /// String values from DICOM tags (PN, LO, SH, CS, UI VRs)
     String(String),
+    /// Integer values from DICOM tags (IS VR)
     Integer(i64),
+    /// Floating-point values from DICOM tags (DS, FL, FD VRs)
     Float(f64),
+    /// Unsigned integer values from DICOM tags (US, UL VRs)
     UnsignedInteger(u64),
+    /// Date values from DICOM tags (DA, DT VRs)
     Date(chrono::NaiveDateTime),
+    /// Time values from DICOM tags (TM VR)
     Time(chrono::NaiveTime),
 }
 
+/// Implements display formatting for Value enum variants.
+/// 
+/// This allows Value instances to be printed in a human-readable format.
+/// Each variant is formatted appropriately for its data type.
 impl std::fmt::Display for Value {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -51,6 +66,12 @@ pub fn read_dicom_file(
     }
 }
 
+/// Represents the complete data extracted from a DICOM file.
+/// 
+/// This struct contains all the relevant information from a DICOM file,
+/// including the file path, extracted tag values, and pixel data if available.
+/// The pixel data is stored as a multi-dimensional array of 16-bit unsigned integers,
+/// which is the typical format for medical imaging data.
 #[allow(dead_code)]
 pub struct DicomData {
     pub path: PathBuf,
@@ -58,6 +79,12 @@ pub struct DicomData {
     pub pixel_data: Option<ndarray::Array<u16, ndarray::IxDyn>>,
 }
     
+
+/// Extracts specific DICOM tags from a DICOM object and converts them to appropriate Rust types.
+/// 
+/// This function processes a list of DICOM tags and extracts their values from the provided
+/// DICOM object. It uses the Value Representation (VR) of each tag to determine the appropriate
+/// parsing method and data type conversion.
 
 fn extract_dicom_tags(dicom: &FileDicomObject<InMemDicomObject>, tags: &[Tag]) -> HashMap<String, Value> {
     // extract dicom tags. use VR to determine how to parse the value.
@@ -190,6 +217,18 @@ fn extract_dicom_tags(dicom: &FileDicomObject<InMemDicomObject>, tags: &[Tag]) -
     tags_map
 }
 
+/// Extracts and decodes pixel data from a DICOM object.
+/// 
+/// This function attempts to extract the pixel data from a DICOM file and convert it
+/// to a multi-dimensional array format suitable for image processing and analysis.
+/// The pixel data is typically stored as 16-bit unsigned integers (u16) which is
+/// the standard format for medical imaging data like CT scans and X-rays.
+/// 
+/// The function performs the following steps:
+/// 1. Decodes the raw pixel data from the DICOM object
+/// 2. Converts the decoded data to a multi-dimensional array
+/// 3. Transforms the data into the ndarray crate format for easier manipulation
+/// 4. Provides detailed logging about the array shape and dimensions
 fn extract_dicom_pixel_data(dicom: &FileDicomObject<InMemDicomObject>) -> Option<ndarray::Array<u16, ndarray::IxDyn>> {
     if let Ok(pixel_data) = dicom.decode_pixel_data() {
         // Convert to an n-dimensional array of u16 (typical for CT pixel values)
