@@ -1,7 +1,11 @@
 [package]
 name = "fast-dicom-reader"
 version = "0.1.0"
-edition = "2024"
+edition = "2021"
+
+[[bin]]
+name = "fast-dicom-reader"
+path = "src/main.rs"
 
 [dependencies]
 dicom = { version = "0.8", features = ["ndarray"] }
@@ -11,3 +15,6 @@ ndarray = "0.16.1"
 chrono = { version = "0.4", features = ["serde"] }
 rayon = "1.8"
 num_cpus = "1.16"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+indicatif = "0.17"
