@@ -6,6 +6,12 @@
 - Apple M1 Pro
 - 32GB RAM
 - macOS 14.7.7 (23H723)
+## performance comparison (details below)
+| Test                          | Real (s) | User (s) | Sys (s) | Max RSS (bytes) | Peak Mem (bytes) |
+|-------------------------------|----------|----------|---------|-----------------|------------------|
+| Rust (all cores, 9 threads)   | 1.06     | 2.07     | 0.66    | 1,204,125,696      | 1,568,936,256       |
+| Rust (single core, 1 thread)  | 2.74     | 1.60     | 0.46    | 911,851,520       | 1,534,808,256       |
+| Python (no parallel)          | 2.38     | 1.31     | 0.32    | 72,892,416        | 41,305,472         |
 
 ## test rust script on all cores
 `/usr/bin/time -l ./target/release/fast-dicom-reader read --path /Users/igor/Downloads/anonym/patient11`

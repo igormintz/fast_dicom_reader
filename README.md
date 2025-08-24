@@ -12,12 +12,6 @@ A high-performance DICOM file reader written in Rust with Python bindings, desig
 - **CLI interface**: Command-line tool for batch processing with progress tracking
 - **Cross-platform**: Works on macOS, Linux, and Windows
 
-## Prerequisites
-
-- Rust (1.70 or later)
-- Python 3.7 or later
-- pip
-
 ## Installation
 
 ### Building from Source
@@ -27,18 +21,7 @@ A high-performance DICOM file reader written in Rust with Python bindings, desig
 git clone <repository-url>
 cd fast_dicom_reader
 ```
-
-2. Install maturin for building Python extensions:
-```bash
-pip install maturin
-```
-
-3. Build and install the Python extension:
-```bash
-maturin develop
-```
-
-4. Build the CLI tool:
+3. Build the CLI tool:
 ```bash
 cargo build --release
 ```
@@ -107,12 +90,6 @@ cargo run -- read --path /path/to/dicom/folder/ --threads 8
 cargo build --release
 ./target/release/fast_dicom_reader read --path /path/to/dicom/folder/
 ```
-
-**CLI Features:**
-- **Progress tracking**: Real-time progress bar showing processing status
-- **Parallel processing**: Configurable thread count for optimal performance
-- **Error handling**: Continues processing even if individual files fail
-- **Smart threading**: Automatically uses (CPU cores - 1) threads by default
 
 ### CLI Commands
 
