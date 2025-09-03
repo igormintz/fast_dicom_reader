@@ -1,0 +1,94 @@
+Short answer: your numbers make sense, and they almost certainly aren’t an apples-to-apples test.
+
+Skeptical take: if both scripts were doing the *same* work, you wouldn’t see **\~1.2–1.5 GB** peak RSS in Rust vs **\~41–73 MB** in Python. That gap screams “different workload,” not “Rust is slow.”
+
+Here’s what your data implies:
+
+* **Python likely isn’t decoding pixel data at all.**
+  pydicom *parses* headers quickly in pure Python and defers or lazily handles PixelData. It only decompresses when you touch `ds.pixel_array`. Your tiny RSS and instructions retired (18.4B vs Rust’s 28.5–32.9B) suggest you didn’t trigger decoding.
+
+* **Rust is probably loading/decoding (or at least fully materializing) PixelData.**
+  The huge RSS and higher instructions retired fit “I read and keep big buffers around” (especially with 9 threads). Even if you don’t call a decoder, some readers load the full value into memory unless you explicitly skip/stream it.
+
+* **Parallel Rust speedup (2.74s → 1.06s, \~2.6×) is consistent with an I/O-heavy, tiny-file workload.**
+  Reading 1,418 small files hammers the filesystem and metadata. You won’t get 9× unless you’re compute-bound and your storage can keep up. The big jump in involuntary context switches (31,417) also hints at kernel/FS contention.
+
+* **“Is pydicom fast because of C?”**
+  pydicom’s parsing is Python; *decompression* (when used) relies on C/C++ libs (numpy, pylibjpeg/libjpeg-turbo, GDCM, OpenJPEG). If you never call `pixel_array`, those don’t even kick in—so C isn’t why your Python is matching Rust here.
+
+---
+
+## Make it apples-to-apples (quick experiments)
+
+Pick one of these *mutually exclusive* scenarios and force **both** implementations to do exactly that:
+
+1. **Metadata-only (no PixelData bytes, no decode)**
+
+* **Python:** `dcmread(path, stop_before_pixels=True)`
+* **Rust:** parse and **explicitly stop/skip** `(7FE0,0010)` Pixel Data. If your reader doesn’t have a “stop before” option, iterate tags and skip the value when you see PixelData; don’t store it.
+
+2. **Read PixelData bytes, but don’t decode**
+
+* **Python:** `dcmread(path)` and touch `ds.PixelData` length, **do not** access `ds.pixel_array`.
+* **Rust:** read the element value but **don’t** call any pixel-data decoder; immediately drop the buffer after measuring.
+
+3. **Fully decode to arrays**
+
+* **Python:** ensure a decoder is installed (e.g., `pylibjpeg`/`libjpeg-turbo`, `jpeg-ls`, `openjpeg` as needed), then **force**: `_ = ds.pixel_array`
+* **Rust:** enable the matching decoders as Cargo features and actually decode each frame, then drop the result.
+
+Only compare Rust vs Python **within the same scenario**. The memory numbers will tell you instantly if you matched the scenario.
+
+---
+
+## Why Python might look “as fast” (even when fair)
+
+* **I/O and syscall overhead dominate** with thousands of small files. The interpreter overhead is lost in the noise.
+* **OS page cache**: second/third runs are much faster regardless of language. Randomize file order or cold-cache to avoid flattering the later run.
+* **C decoders are *very* fast** (libjpeg-turbo, OpenJPEG, CharLS). If both decode, Python will call into those too. Rust will be fast as well, but if you’re using a pure-Rust JPEG decoder while Python hits libjpeg-turbo, Python can even win for JPEG. (Check your Cargo features.)
+
+---
+
+## Concrete checks & fixes
+
+**On the Python side**
+
+* Print what you’re doing:
+
+  ```python
+  ds = pydicom.dcmread(p)
+  print(ds.file_meta.TransferSyntaxUID)
+  print('has PixelData:', 'PixelData' in ds)
+  print('PixelData length:', len(ds.PixelData) if 'PixelData' in ds else 0)
+  # Uncomment to force decode
+  # arr = ds.pixel_array
+  ```
+* If you meant metadata-only, use `stop_before_pixels=True`.
+* If you meant to decode, ensure the plugins are installed (e.g., `pip install pylibjpeg pylibjpeg-libjpeg pylibjpeg-openjpeg`), and actually touch `ds.pixel_array`.
+
+**On the Rust side (dicom-rs)**
+
+* **Don’t keep big buffers**: process one file, drop everything before moving to the next (let values go out of scope).
+* **Skip PixelData** unless you need it. If your API doesn’t expose a “read-until” or “skip” option, walk tags and skip the PixelData element’s value explicitly.
+* **Match decoders**: make sure Cargo features for the compressions you have are enabled (e.g., JPEG, JPEG-LS, JPEG2000/OpenJPEG). If you’re on a pure-Rust JPEG path while Python uses libjpeg-turbo, expect Python to be competitive or faster on JPEG.
+* **Tame parallelism**: limit threads to physical cores; bound in-flight files to avoid 1GB+ RSS from multiple pixel buffers.
+* **Use buffered I/O / mmap**: `BufReader` with a large capacity or memory-map the file to cut syscalls/copies.
+* **Build flags**: release build with `RUSTFLAGS="-C target-cpu=native"`, enable LTO, `codegen-units=1`.
+
+---
+
+## A tidy benchmarking matrix (suggested)
+
+| Scenario        | Python                    | Rust                     | Expectation                                                    |
+| --------------- | ------------------------- | ------------------------ | -------------------------------------------------------------- |
+| Metadata-only   | `stop_before_pixels=True` | Skip on PixelData        | Near parity; I/O bound                                         |
+| Read bytes only | `len(ds.PixelData)`       | Read element bytes       | Near parity; I/O/mem-copy bound                                |
+| Full decode     | `ds.pixel_array`          | enable decoders + decode | Depends on codec; both fast; libjpeg-turbo often wins for JPEG |
+
+If, after forcing a fair scenario, Rust still isn’t at least *slightly* ahead single-threaded, I’d look for:
+
+* Extra copies/allocations (Vec growth, per-thread buffers)
+* Eager collection of the whole dataset into an in-memory object instead of streaming only what you need
+* A slow decoder path (pure-Rust JPEG vs libjpeg-turbo)
+
+Bottom line: your results are believable. They mainly reflect **I/O-bound work and a mismatch in what each script actually does**. Make the workload identical (especially around PixelData) and the story will become much clearer.

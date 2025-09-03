@@ -21,6 +21,7 @@ except ImportError:
     print("Error: pydicom is required. Install with: pip install pydicom")
     sys.exit(1)
 
+
 # DICOM Tags Constants (translated from consts.rs)
 DICOM_TAGS = [
     (0x0020, 0x000D),  # STUDY_INSTANCE_UID
@@ -180,16 +181,32 @@ def extract_dicom_pixel_data(dicom: Dataset) -> Optional[np.ndarray]:
         if (0x7FE0, 0x0010) not in dicom:  # PixelData tag
             return None
 
-        # Get pixel array from pydicom
+        # Force pixel data decoding by accessing pixel_array
+        # This ensures we're doing the same work as the Rust implementation
         pixel_array = dicom.pixel_array
 
+        # Ensure the pixel data is actually loaded and decoded
+        # by accessing its shape and dtype (forces evaluation)
+        _ = pixel_array.shape
+        _ = pixel_array.dtype
+
         # Convert to int32 to match the Rust implementation
+        # This creates a copy and ensures data is in memory
         pixel_data = pixel_array.astype(np.int32)
+
+        # Force memory allocation by touching the data
+        _ = pixel_data.nbytes
 
         return pixel_data
 
     except Exception as e:
-        print(f"Failed to decode pixel data: {e}")
+        # More specific error handling for pixel data decoding
+        error_msg = f"Failed to decode pixel data: {e}"
+        if "Transfer Syntax" in str(e):
+            error_msg += " (Missing decoder for transfer syntax)"
+        elif "pixel_array" in str(e):
+            error_msg += " (Pixel array access failed)"
+        print(error_msg)
         return None
 
 
@@ -265,11 +282,15 @@ def main():
             # Process files sequentially
             errors = []
             processed_count = 0
+            all_dicom_data = []  # Keep all data in memory like Rust implementation
 
             for path in tqdm(dicom_paths, desc="Processing DICOM files", unit="file"):
                 try:
                     dicom_data = process_single_dicom(path)
                     processed_count += 1
+
+                    # Keep data in memory to match Rust behavior
+                    all_dicom_data.append(dicom_data)
 
                 except Exception as e:
                     errors.append(str(e))

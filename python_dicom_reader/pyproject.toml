@@ -7,9 +7,17 @@ readme = "README.md"
 
 [tool.poetry.dependencies]
 python = "^3.11"
-numpy = "^2.3.2"
 pydicom = "^3.0.1"
-tqdm = "^4.66.0"
+numpy = "^2.3.2"
+tqdm = "^4.67.1"
+
+# Optional dependencies for better pixel data decoding performance
+pylibjpeg = { version = "^2.0.0", optional = true }
+pylibjpeg-libjpeg = { version = "^2.0.0", optional = true }
+pylibjpeg-openjpeg = { version = "^2.0.0", optional = true }
+
+[tool.poetry.extras]
+decoders = ["pylibjpeg", "pylibjpeg-libjpeg", "pylibjpeg-openjpeg"]
 
 
 [build-system]

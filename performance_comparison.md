@@ -7,12 +7,33 @@
 - 32GB RAM
 - macOS 14.7.7 (23H723)
 ## performance comparison (details below)
-| Test                          | Real (s) | User (s) | Sys (s) | Max RSS (bytes) | Peak Mem (bytes) |
-|-------------------------------|----------|----------|---------|-----------------|------------------|
-| Rust (all cores, 9 threads)   | 1.06     | 2.07     | 0.66    | 1,204,125,696      | 1,568,936,256       |
-| Rust (single core, 1 thread)  | 2.74     | 1.60     | 0.46    | 911,851,520       | 1,534,808,256       |
-| Python (no parallel)          | 2.38     | 1.31     | 0.32    | 72,892,416        | 41,305,472         |
+| Metric | Rust (9 threads) | Rust (1 thread) | Python (no parallel) | Diff (Rust-1 → Py) | Diff (Rust-9 → Py) |
+|--------|------------------|-----------------|-----------------------|---------------------|---------------------|
+| **Real time (s)** | 1.06 | 2.74 | 4.64 | +1.90 | +3.58 |
+| **User time (s)** | 2.07 | 1.60 | 1.64 | +0.04 | –0.43 |
+| **Sys time (s)** | 0.66 | 0.46 | 0.56 | +0.10 | –0.10 |
+| **Max resident set size (MB)** | 1,204.1 | 911.9 | 1,177.3 | +265.4 | –26.8 |
+| **Page reclaims** | 96,482 | 95,126 | 101,581 | +6,455 | +5,099 |
+| **Page faults** | 0 | 112 | 76 | –36 | +76 |
+| **Voluntary context switches** | 3,004 | 3,177 | 4,906 | +1,729 | +1,902 |
+| **Involuntary context switches** | 31,417 | 3,074 | 2,536 | –538 | –28,881 |
+| **Instructions retired** | 32,883,935,819 | 28,450,186,221 | 22,997,574,028 | –5,452,612,193 | –9,886,361,791 |
+| **Cycles elapsed** | 8,171,193,026 | 6,350,710,295 | 6,750,572,636 | +399,862,341 | –1,420,620,390 |
+| **Peak memory footprint (MB)** | 1,568.9 | 1,534.8 | 1,569.7 | +34.9 | +0.8 |
 
+Speed: Rust (9 threads) is the clear winner — 1.06s vs. 4.64s (Python). Nearly 4.4× faster.
+
+CPU usage: Multi-threaded Rust increases user + sys times (work distributed across cores), but wall time plummets.
+
+Memory:
+
+Rust-9 uses ~1.2 GB RSS, slightly above Python’s 1.18 GB.
+
+Peak memory is nearly identical between Rust-9 and Python (~1.57 GB).
+
+Context switches: Rust-9 incurs huge involuntary context switches (31K) vs. Rust-1 (3K) and Python (2.5K). This is expected from thread scheduling overhead.
+
+Efficiency: Rust-9 retired ~33B instructions (more than both Rust-1 and Python), but finished >4× faster than Python, meaning much lower cycles per instruction overall.
 ## test rust script on all cores
 `/usr/bin/time -l ./target/release/fast-dicom-reader read --path /Users/igor/Downloads/anonym/patient11`
 ```bash
@@ -77,30 +98,31 @@ Processing completed. Total files: 1418
 ```
 ## test python script (no parallel processing)
 ```bash
-/usr/bin/time -l python /Users/igor/Documents/python_dicom_reader/python_dicom_reader/main.py read --path /Users/igor/Downloads/anonym/patient11
+/usr/bin/time -l python /Users/igor/Documents/fast_dicom_reader/fast_dicom_reader/python_dicom_reader/python_dicom_reader/main.py read --path /Users/igor/Downloads/anonym/patient11
 Processing DICOM files in: /Users/igor/Downloads/anonym/patient11
 Found 1418 DICOM files to process
-Processing DICOM files: 100%|███████████████████████████████████████████████| 1418/1418 [00:02<00:00, 646.61file/s]
+Processing DICOM files: 100%|█████████████████████████████████████████████████████████████████████| 1418/1418 [00:02<00:00, 600.84file/s]
 Processing complete!
 
 All DICOM files processed successfully!
 Processing completed. Total files: 1418, Successfully processed: 1418
-        2.38 real         1.31 user         0.32 sys
-            72892416  maximum resident set size
+        4.64 real         1.64 user         0.56 sys
+          1177305088  maximum resident set size
                    0  average shared memory size
                    0  average unshared data size
                    0  average unshared stack size
-                6842  page reclaims
-                  17  page faults
+              101581  page reclaims
+                  76  page faults
                    0  swaps
                    0  block input operations
                    0  block output operations
                    0  messages sent
                    0  messages received
                    0  signals received
-                4893  voluntary context switches
-                2027  involuntary context switches
-         18416046660  instructions retired
-          5102259469  cycles elapsed
-            41305472  peak memory footprint
+                4906  voluntary context switches
+                2536  involuntary context switches
+         22997574028  instructions retired
+          6750572636  cycles elapsed
+          1569722752  peak memory footprint
 ```
+
